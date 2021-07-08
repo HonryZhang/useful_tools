@@ -1,0 +1,128 @@
+============================chinese spec==========================================================================
+
+-- 功能说明：
+   本工具主要为进行对象存储系统的性能测试功能机，能够自动产生定义的测试数据大小进行对象上传 下载，在性能和执行效率上俱佳。
+   自定义配置并发数和上传对象数，自定义测试业务接口，当前支持绝大多数 对象接口操作，
+   工具适配华为云 对象存储服务接口， 若对接其他对象接口，做适度接口头域修改就可适配。
+   是业内进行性能测试验证的最佳工具.
+
+   1. 支持如下操作。
+                 100:'ListUserBuckets', 
+                 101:'CreateBucket', 
+                 102:'ListObjectsInBucket', 
+                 103:'HeadBucket', 
+                 104:'DeleteBucket', 
+                 105:'BucketDelete',
+                 106:'OPTIONSBucket',
+                 111:'PutBucketVersioning',
+                 112:'GetBucketVersioning',
+                 141:'PutBucketWebsite',
+                 142:'GetBucketWebsite',
+                 143:'DeleteBucketWebsite',
+                 151:'PutBucketCORS',
+                 152:'GetBucketCORS',
+                 153:'DeleteBucketCORS',
+                 161:'PutBucketTag',
+                 162:'GetBucketTag',
+                 163:'DeleteBucketTag',
+                 164:'PutBucketLog',
+                 165:'GetBucketLog',
+                 167:'PutBucketStorageQuota',
+                 168:'GetBucketStorageQuota',
+                 170:'PutBucketAcl',
+                 171:'GetBucketAcl',
+                 173:'PutBucketPolicy',
+                 174:'GetBucketPolicy',
+                 175:'DeleteBucketPolicy',
+                 176:'PutBucketLifecycle',
+                 177:'GetBucketLifecycle',
+                 178:'DeleteBucketLifecycle',
+                 179:'PutBucketNotification',
+                 180:'GetBucketNotification',
+                 182:'GetBucketMultiPartsUpload',
+                 185:'GetBucketLocation',
+                 188:'GetBucketStorageInfo',
+                 201:'PutObject',
+                 202:'GetObject',
+                 203:'HeadObject',
+                 204:'DeleteObject',
+                 205:'DeleteMultiObjects',
+                 206:'CopyObject',
+                 207:'RestoreObject',
+                 211:'InitMultiUpload',
+                 212:'UploadPart',
+                 213:'CopyPart',
+                 214:'CompleteMultiUpload',
+                 215:'AbortMultiUpload',
+                 216:'MultiPartsUpload',
+                 217:'GetObjectUpload',
+                 218:'PutObjectAcl',
+                 219:'GetObjectAcl',
+                 221:'OptionsObject',
+                 226:'PostObject',
+                 900:'MixOperation'（混合操作）
+
+    2.支持长短连接。
+    3.支持域名和IP两种方式请求。
+    4.支持HTTP/HTTPs两种方式配置。
+    5.支持上传下载对象时计算 MD5值。
+    6.支持上传对象时随机对象名，随机对象大小。
+    7.性能结果统计功能：包括实时统计结果：包括在线并发数，错误率，TPS，吞吐量，实时某个时间段内的性能数据。
+
+
+-- 安装&配置/INSTALL&CONFIG:
+    1. 要求python环境2.6.x或2.7.x，若要测试TSL1.1以及以上版本的HTTPS加密算法，需要>=2.7.9 
+    2. 如果要使用DNS域名请求方式，需要：
+     a) 本程序的执行机上没有运行域名缓存服务，否则造成请求均发送到同一个OSC,查询关闭nscd的方法：service nscd status|stop
+     b) 配置的域名可以正常解析。在/etc/resolv.conf内配置dns服务器。
+
+-- 运行/HOW TO RUN:
+
+    1. 创建测试帐户：
+       配置使用AK SK鉴权，则需要在users.dat文件中按如下格式构造测试帐户供工具读取。（1个或多个，根据需要配置）
+      accountName,accessKey,secretKey,
+      accountName1,accessKey1,secretKey1,
+      accountName2,accessKey2,secretKey2,
+      ...
+
+    2. 编辑 config.dat，配置测试模型
+
+    3. 运行，可指定参数，指定的参数覆盖配置文件中的参数
+    ./run.py -f [指定加载的配置文件] -u [用户信息配置文件] -o [result输出目录] -t [测试用例编号]
+    -f: 不指定就是运行目录下的config.dat
+    -u: 不指定就是运行目录下的users.dat
+    -o: 不指定就是运行目录下的result目录
+    -t: 不指定以配置文件中的Testcase为准
+
+    4. 查看结果，目录-o指定目录或./result/：
+     2013.12.05_06.14.50_HeadBucket_200_brief.txt 表示200用户并发HeadBucket操作最终测试结果。     
+     2013.12.05_06.14.50_HeadBucket_200_detail.csv 表示200用户并发HeadBucket操作所有请求的详细结果。
+     archive.csv 每次执行后归档的结果。
+        ProcessId,UserName,RequestSq,Operation,Start_At,End_At,Latency(s),DataSend(Bytes),DataRecv(Bytes),Mark,RequestID,Response
+        0,zz.account.0,1,ListUserBuckets,1394000293.383760,1394000293.409535,0.025775,0,500,,D4B110AFF9760000014490D9C2E4AB2B,200 OK
+    
+     2014.03.05_06.18.13_MixOperation_2_realtime.txt表示2用户并发MixOperation操作，实时间隔5秒（可配置参数StatisticsInterval）采样周期的性能统计结果。
+     NO      StartTime           OK          Requests    ErrRate(%)  TPS       AvgLatency（S）   SendBytes        RecvBytes
+     1       03/05 06:18:13.382  279         279         0.0         55.8      0.037           173195           100000
+     2       03/05 06:18:18.382  75          75          0.0         15.0      0.13            180061           0
+     3       03/05 06:18:23.382  86          86          0.0         17.2      0.116           229280           0
+
+    
+其它说明：
+    1. 请求间有先后依赖关系。如上传对象需要之前运行过创建桶。
+    2. 工具打印日志文件log/obsPyTool.log,日志级别在logging.conf配置文件内可配置：
+        可选级别：DEBUG（所有请求的详细信息)、WARNING（>=400请求日志)、ERROR(>=500请求) 
+    3. 错误码描述：
+            'connection reset by peer': '9998',      # 连接类错误：服务器拒绝连接
+            'broken pipe': '9997',                   # 读写过程中连接管道破裂
+            'timed out': '9996',                     # 客户端等服务器端响应时间超时，时间配置参数ConnectTimeout
+            'badstatusline': '9995',                 # 客户端读HTTP响应码格式错误或读到为空，常见于服务器端断开连接
+            'connection timed out': '9994',          # 请求前连接建立超时
+            'the read operation timed out': '9993',  # 从服务器端读响应超时
+            'cannotsendrequest': '9992',             # 客户端发送请求报错
+            'keyboardinterrupt': '9991',             # 键盘Ctrl+C中断请求
+            'name or service not known': '9990',     # 服务器端域名无法解析
+            'no route to host': '9989',              # 到服务器端IP不可达，路由错误
+            'data error md5': '9901',                # 下载对象数据校验错误，也可能数据长度不正确
+            'data error content-length': '9902',     # 收到消息长度与服务器端返回的content-length头域值不一致
+            'other error': '9999'                    # 其它错误，参考工具日志堆栈定位。直接搜索堆栈关键字。
