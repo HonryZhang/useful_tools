@@ -8,11 +8,15 @@ author: baorb
 
 # Testcase参照
 # 101 = CreateBucket
+# 102 = ListObjectsInBucket
 # 104 = DeleteBucket
 # 201 = PutObject
 # 202 = GetObject
+# 203 = HeadObject
 # 204 = DeleteObject
+# 206 = CopyObject
 # 208 = AppendObject
+# 210 = GetCopyObject
 # 216 = MultiPartsUpload    # 多段上传对象
 
 
@@ -27,7 +31,7 @@ class Config:
                 {'testcase': [204, 104], 'nums': 1}]
 
     EndPoint = ''   # 域名或者ip
-    ThreadsPerUser = 1
+    ThreadsPerUser = 1  # 每个用户下的进程数量
     HTTPPort = 20480
     HTTPsPort = 20481
     IsHTTPs = False
@@ -37,8 +41,8 @@ class Config:
     ConnectTimeout = 300
 
     # ********************** 桶配置 **********************
-    BucketsPerUser = 10
-    BucketNamePrefix = 'bucket'
+    BucketsPerUser = 10     # 每个用户下的桶个数
+    BucketNamePrefix = 'bucket'     # 桶名标识符
 
     # ********************** 对象配置 **********************
     # 示例： ObjectSize = 4k 上传指定大小对象。4096=4K, 104857600=100MB, 65536=64K
@@ -46,7 +50,11 @@ class Config:
     # 示例：ObjectSize = 0,1024,2048  随机上传大小为0,1024或2048大小的对象。
     ObjectSize = '1m~100m'  # 必须是512B的倍数
     ObjectsPerBucketPerThread = 1000    # 每个并发每个桶中的对象个数
-    ObjectNamePrefix = 'obj'
+    ObjectNamePrefix = 'obj'    # 对象名标识符
+
+    ObjectDeleteRatio = 100     # 对象删除比例，合法范围在1~100，100表示全量删除
+    # 下载对象时，是否按照range下载，如果按照range下载，会在下载前执行一遍HeadObject，获取对象长度，然后随机生成range
+    ObjectGetRange = False
 
     # ********************** 多段配置 **********************
     # 当采用多段时，对象个数使用ObjectsPerBucketPerThread，但是对象大小不再根据ObjectSize计算，而是由PartsForEachUploadID和PartSize决定
@@ -62,6 +70,9 @@ class Config:
     # 运行时长（秒）
     # 运行指定时长后退出。若未到指定时长时，配置的请求数完成，工具也会退出。配置为0表示不配置，即按配置的请求数完成后退出。
     RunSeconds = 0
+
+    # 每个请求的重试次数，0代表不重试。比如4代表在初始请求后再最多重试4次（一共最多5次请求）
+    RetriesNum = 0
 
     # 是否打印运行中的实时结果和进度。自动化调用工具时关闭。
     PrintProgress = True
@@ -102,3 +113,12 @@ class Config:
 
     # 性能统计结果是否包含错误请求,影响统计结果项：avgLatency, tps, sendBPS, recvBPS
     BadRequestCounted = False
+
+    @staticmethod
+    def get_attr_order():
+        return ['Users', 'TestCase', 'EndPoint', 'ThreadsPerUser', 'HTTPPort', 'HTTPsPort', 'IsHTTPs', 'OutputPath',
+                'ConnectTimeout', 'BucketsPerUser', 'BucketNamePrefix', 'ObjectSize', 'ObjectsPerBucketPerThread',
+                'ObjectNamePrefix', 'ObjectDeleteRatio', 'PartsForEachUploadID', 'PartSize', 'AppendNumPerObject',
+                'AppendSize', 'RunSeconds', 'RetriesNum', 'PrintProgress', 'TpsPerThread', 'StatisticsInterval',
+                'LatencyPercentileMap', 'LatencyPercentileMapSections', 'CollectBasicData', 'LatencySections',
+                'LatencyRequestsNumber', 'LatencyRequestsNumberSections', 'RecordDetails', 'BadRequestCounted']

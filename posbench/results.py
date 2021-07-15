@@ -177,6 +177,16 @@ class ResultWriter(Process):
             if self.currentThreads.value == -2 or (self.currentThreads.value == -1 and self.results_queue.empty()):
                 # 退出前将未写入的记录写入
                 if Config.RecordDetails:
+                    try:
+                        q_tuple = self.results_queue.get(block=True, timeout=1)
+                        writer_buffer.append('%d,%s,%s,%s,%f,%f,%f,%d,%d,%s,%s' % (
+                            q_tuple[0], q_tuple[1], q_tuple[2], q_tuple[3], q_tuple[4], q_tuple[5], q_tuple[5] - q_tuple[4],
+                            q_tuple[6], q_tuple[7], q_tuple[8], q_tuple[9]))
+                    except Queue.Empty:
+                        pass
+                    except Exception, data:
+                        logging.warning('get record from queue exception: %s ' % data)
+                        pass
                     self.detailWriterLogger.info('\n'.join(writer_buffer))
                 print 'waiting for writing real time file '
                 for i in sorted(self.last10_Realtime_Stat)[:]:
@@ -327,19 +337,19 @@ class ResultWriter(Process):
             # serial_no从大到小写入数组，数组下标0最新统计值，1~5缓存用于实时结果，6~9写文件
             # 1. 如果当前归属的序号不在已统计的结果，并且实时结果中<10个，直接初始一个新的段结果，并使用当前请求结果刷新。
             # 同时若结果>=6个，将从大到小[6]号段结果写文件。
-            if (serial_no not in self.last10_Realtime_Stat) and len(self.last10_Realtime_Stat) < 1200:
+            if (serial_no not in self.last10_Realtime_Stat) and len(self.last10_Realtime_Stat) < 20:
                 self.last10_Realtime_Stat[serial_no] = StatisticItem(serial_no, self.valid_start_time.value,
                                                                      Config.StatisticsInterval,
                                                                      Config.BadRequestCounted)
                 self.last10_Realtime_Stat[serial_no].refresh(latency, status, data_send, data_recv)
-                if len(self.last10_Realtime_Stat) >= 1190:
+                if len(self.last10_Realtime_Stat) >= 10:
                     self.__writeRealTimeFile__(
-                        self.last10_Realtime_Stat[sorted(self.last10_Realtime_Stat, reverse=True)[1189]])
+                        self.last10_Realtime_Stat[sorted(self.last10_Realtime_Stat, reverse=True)[9]])
             # 2. 如果当前归属的序号在已统计的结果中，且未满，直接刷新这个结果。
             elif serial_no in self.last10_Realtime_Stat:
                 self.last10_Realtime_Stat[serial_no].refresh(latency, status, data_send, data_recv)
             # 3. 如果当前归属的序号不在已统计的结果，并且实时结果中=10个
-            elif (serial_no not in self.last10_Realtime_Stat) and len(self.last10_Realtime_Stat) >= 1200:
+            elif (serial_no not in self.last10_Realtime_Stat) and len(self.last10_Realtime_Stat) >= 20:
                 # 若小于当前缓存结果中最小的，直接跳过处理。
                 if serial_no < sorted(self.last10_Realtime_Stat)[0]:
                     logging.warning('record is ignored. %s' % str(q_tuple))
@@ -351,7 +361,7 @@ class ResultWriter(Process):
                     self.last10_Realtime_Stat[serial_no].refresh(latency, status, data_send, data_recv)
                     # 将[6]号段写文件
                     self.__writeRealTimeFile__(
-                        self.last10_Realtime_Stat[sorted(self.last10_Realtime_Stat, reverse=True)[1189]])
+                        self.last10_Realtime_Stat[sorted(self.last10_Realtime_Stat, reverse=True)[9]])
                     # 从统计缓存中删除最旧的结果
                     del self.last10_Realtime_Stat[sorted(self.last10_Realtime_Stat)[0]]
 
@@ -478,12 +488,19 @@ class ResultWriter(Process):
         run_time_origin = self.lastUpdateTime - self.valid_start_time.value
         run_time = self.convert_time_format_str(run_time_origin)
         self.accurate_summary_dict['runTime'] = run_time_origin
-        total_result_arr = [proc_bar.ljust(100),
-                            'RunTime: %-52s' % (run_time),
-                            '%-18s%-82d' % ('[RunningThreads]', current_threads),
-                            '%-18s%-82d' % ('[TotalRequests]', self.totalRequests),
-                            '%-18s%-82d' % ('[Requests]', self.rough_summary_dict['currentRequests']),
-                            '%-18s%-9d%-73s' % ('[OK]', self.rough_summary_dict['totalOK'], ok_str)]
+        if self.totalRequests > 0:
+            total_result_arr = [proc_bar.ljust(100),
+                                'RunTime: %-52s' % (run_time),
+                                '%-18s%-82d' % ('[RunningThreads]', current_threads),
+                                '%-18s%-82d' % ('[TotalRequests]', self.totalRequests),
+                                '%-18s%-82d' % ('[Requests]', self.rough_summary_dict['currentRequests']),
+                                '%-18s%-9d%-73s' % ('[OK]', self.rough_summary_dict['totalOK'], ok_str)]
+        else:
+            total_result_arr = [proc_bar.ljust(100),
+                                'RunTime: %-52s' % (run_time),
+                                '%-18s%-82d' % ('[RunningThreads]', current_threads),
+                                '%-18s%-82d' % ('[Requests]', self.rough_summary_dict['currentRequests']),
+                                '%-18s%-9d%-73s' % ('[OK]', self.rough_summary_dict['totalOK'], ok_str)]
 
         if not Config.CollectBasicData:
             if self.rough_summary_dict['totalClientErr'] > 0:
@@ -902,7 +919,7 @@ class StatisticItem:
         self.totalLatency = 0
         self.totalSend = 0
         self.totalRecv = 0
-        self.tps = ''
+        self.tps = '0.0'
         start_time = base_time + (self.serial_no - 1) * statistics_interval
         self.start_time = time.strftime("%m/%d_%H:%M:%S", time.localtime(start_time)) + str(start_time % 1)[1:5]
 

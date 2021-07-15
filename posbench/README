@@ -1,0 +1,55 @@
+########### 简介 ###########
+posbench工具是基于obscmdbench工具修改而来，所以posbench的目的是弥补obscmdbench工具的不足点。posbench主要用来验证put、多段、追加写
+对象的数据正确性
+
+########### 准备工作 ###########
+执行点需要安装boto3（亚马逊s3的python sdk）
+boto3的安装方法
+(1) 解压4.0.4_python_sdk_V1.1.tar.gz
+(2) 执行sh install.sh
+
+########### 执行方法 ###########
+python main.py
+参数：
+-o  非必选参数，指定日志生成目录，如果未配置则在执行目录生成output。如果日志目录下有之前的日志，会自动清理之前的日志
+
+########### 配置文件 ###########
+配置文件为setting.py，每项配置可以看配置项的注释
+在此介绍几项关键配置：
+Users                       用户信息
+TestCase                    要执行的测试项，注意需要自行配置业务顺序，比如先创建桶再上传对象
+EndPoint                    域名或vip
+ThreadsPerUser              每个用户的进程数，测试的并发数=ThreadsPerUser*用户数量
+ConnectTimeout              每个请求的超时时间
+BucketsPerUser              每个用户的桶数
+BucketNamePrefix            桶名标识，桶名生成规则: sk-BucketNamePrefix-进程号
+ObjectSize                  每个对象大小
+ObjectsPerBucketPerThread   每个桶每个进程的对象数，总对象数=ObjectsPerBucketPerThread*BucketsPerUser*ThreadsPerUser*用户数
+ObjectNamePrefix            对象名标识，对象名生成规则: 进程号-ObjectNamePrefix-在此进程内编号
+ObjectDeleteRatio           删除对象时的删除比例，100表示全部删除，50表示删除一半
+ObjectGetRange              下载对象时是否以range下载，True表示range下载，False表示下载整个对象
+PartsForEachUploadID        多段上传每个对象的段个数
+PartSize                    多段每个段的大小
+AppendNumPerObject          追加写对象的追加次数
+AppendSize                  每次追加写的大小
+
+
+########### 日志 ###########
+output下会生成两个目录data和result，data是记录数据内容信息所用，所以不用关注。只需要关注result即可
+介绍result下的日志文件：
+brief.txt       记录了本次测试整体情况，比如请求个数，成功失败个数，TPS，带宽，延迟等信息
+detail.csv      记录了每次请求的情况，比如本次请求的类型，资源项，响应码，请求数据量，接受数据量，消耗时长等
+realtime.txt    记录了每隔x秒的请求数，成功数，失败率，TPS，数据量等（可以分析出是否断流）
+posbench.log    记录了日志信息，可以看失败的具体信息，尤其是数据不一致后的信息
+
+########### 错误码 ###########
+9901    数据校验错误
+9902    数据长度和content-length头域值不一致
+9990    服务器端域名无法解析
+9993    从服务器端读取数据超时
+9994    链接超时
+9995    客户端读HTTP响应为空，常见于服务器端断开连接
+9998    连接类错误：服务器拒绝连接
+9999    其他错误
+
+当发现9901和9902时测试工具会退出之外，其他所有错误工具都继续执行

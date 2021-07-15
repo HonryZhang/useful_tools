@@ -10,7 +10,7 @@ import struct
 import random
 
 from setting import Config
-from common import Log
+from lib import Log
 
 
 class InputStream(object):
@@ -99,9 +99,14 @@ class BasicCheckData(object):
         self._process_id = process_id
 
     @classmethod
-    def create_data(cls):
+    def create_data(cls, seed=None):
         """生成原始数据"""
+
         obj_random = random.Random()
+        if seed is None:
+            seed = random.randint(0, 10000000)
+            Log.logger.info("Basic Data Seed: {}".format(seed))
+        obj_random.seed(seed)
         hex_lst = []
         # 以4字节来创建数据，8位16进制数为4个字节
         for _ in range(cls.BaseDataLength / 4):
@@ -126,7 +131,7 @@ class BasicCheckData(object):
         db = None
         try:
             db = shelve.open(os.path.join(Config.OutputPath, 'data/process-{}.dat'.format(self._process_id)))
-            info = db.get(key, None)
+            info = db.get(str(key), None)
         finally:
             db.close()
         return info
@@ -141,45 +146,56 @@ class BasicCheckData(object):
         db = None
         try:
             db = shelve.open(os.path.join(Config.OutputPath, 'data/process-{}.dat'.format(self._process_id)))
-            db[key] = infos
+            db[str(key)] = infos
+            Log.logger.info("bucket/object: {}/{},  version: {},  check_info: {}".format(bucket_name, object_key,
+                                                                                         version_id, infos))
         finally:
             db.close()
 
 
 class CheckSum(object):
+
+    chunk_size = 64 * 1024  # 读的块大小
+    block_size = 512        # 每次比较内容的大小
+    total_block_num = 16    # 决定打印多少
+
     def __init__(self, bucket_name, object_name):
         self._bucket_name = bucket_name
         self._object_name = object_name
 
-    def start_check(self, file_object, expect_infos):
-        chunk_size = 1024 * 64
-        is_success = True
-        expect_object_size = sum([expect_info['size'] for expect_info in expect_infos])
+    def start_check(self, file_object, expect_info, content_range=None):
         true_object_size = 0  # 统计对象真实大小
         start_position = 0
+        self._expect_info = expect_info
+        self._content_range = content_range
+        self._error_msg_lst = []
+        self._error_num = 0
 
-        object_read_finish = False
-        for expect_info in expect_infos:
-            # 如果对象内容读完或者发现不一致则不再继续
-            if object_read_finish or not is_success:
+        # 根据range获取期望的数据信息
+        range_info = self._parse_range(content_range, expect_info)
+        expect_object_size = range_info['size']
+
+        expect_body = InputStream(range_info['size'], basedata_offset=range_info['offset'])
+        while True:
+            expect_content = expect_body.read(self.chunk_size)
+            # 如果这一段预期的已经读完，则进行下一段
+            if not expect_content:
                 break
-            expect_body = InputStream(expect_info['size'], basedata_offset=expect_info['offset'])
-            while True:
-                expect_content = expect_body.read(chunk_size)
-                # 如果预期的已经读完，则进行下一段
-                if not expect_content:
-                    break
-                true_content = file_object.read(len(expect_content))
-                # 如果实际对象读完，则结束
-                if not true_content:
-                    object_read_finish = True
-                    break
-                true_object_size += len(true_content)
-                # 比较数据一致性
-                if is_success and not self._compare_content(expect_content, true_content, start_position):
-                    is_success = False
-                start_position += len(true_content)
+            true_content = file_object.read(len(expect_content))
+            # 如果实际对象读完，则结束
+            if not true_content:
+                break
+            true_object_size += len(true_content)
+            # 比较数据一致性，如果不一致的段够了打印数量，则不再比较
+            if self._error_num < self.total_block_num:
+                self._compare_content(expect_content, true_content, start_position)
+            start_position += len(true_content)
         true_object_size += len(file_object.read())
+
+        if self._error_msg_lst:
+            Log.logger.error('\n'.join(self._error_msg_lst))
+
+        is_success = self._error_num == 0   # 不一致的段个数为0，暂定为成功
         # 判断实际的对象大小和预期的大小是否相同
         if true_object_size != expect_object_size:
             is_success = False
@@ -188,38 +204,54 @@ class CheckSum(object):
         return is_success, true_object_size
 
     def _compare_content(self, expect_content, true_content, position):
-        """比较内容，如果不一致则打印出来"""
-        if true_content != expect_content:
-            # 先判断长度是否正确
+        """比较内容"""
+        # 能进到这个函数，说明不一致的段还没有打印够个数，这个分支说明前边已经不一致，后面的连续数据不再判断一致性，而是都打印出来
+        if self._error_num > 0:
             true_content_len = len(true_content)
             expect_content_len = len(expect_content)
-            if true_content_len != expect_content_len:
-                Log.logger.error("expect block bytes {},   actually received block bytes {}".format(expect_content_len,
-                                                                                                    true_content_len))
-                return False
-
-            # 每次判断512字节
-            start = 0
+            start_position = 0
             while True:
-                if start >= true_content_len and start >= expect_content_len:
+                if start_position >= true_content_len and start_position >= expect_content_len:
                     break
-                _expect_content = expect_content[start:start+512]
-                _true_content = true_content[start:start+512]
-                if _expect_content != _true_content:
-                    self._compare_content_512(_expect_content, _true_content, position+start)
+                _expect_content = expect_content[start_position:start_position + self.block_size]
+                _true_content = true_content[start_position:start_position + self.block_size]
+                self._print_block_content(_expect_content, _true_content)
+                start_position += self.block_size
+                self._error_num += 1
+                if self._error_num >= self.total_block_num:
                     break
-                start += 512
-            return False
-        else:
-            return True
+        # 此分支说明前面没有发现不一致，需要判断数据是否相等
+        elif true_content != expect_content:
+            true_content_len = len(true_content)
+            expect_content_len = len(expect_content)
+            start_position = 0
+            while True:
+                if start_position >= true_content_len and start_position >= expect_content_len:
+                    break
+                _expect_content = expect_content[start_position:start_position + self.block_size]
+                _true_content = true_content[start_position:start_position + self.block_size]
+                if self._error_num > 0:
+                    self._print_block_content(_expect_content, _true_content)
+                    self._error_num += 1
+                    if self._error_num >= self.total_block_num:
+                        break
+                elif _expect_content != _true_content:
+                    self._error_msg_lst.append(
+                        "expect_info: {},   range: {}".format(self._expect_info, self._content_range))
+                    self._error_msg_lst.append(
+                        "bucket: {};   object: {};   bad sector lba: 0x{:08x}".format(self._bucket_name,
+                                                                                      self._object_name,
+                                                                                      position + start_position))
+                    self._error_msg_lst.append("{}{:<35}   {}".format(''.ljust(9), 'expect:', 'true:'))
+                    self._print_block_content(_expect_content, _true_content)
+                    self._error_num += 1
+                    if self._error_num >= self.total_block_num:
+                        break
+                start_position += self.block_size
 
-    def _compare_content_512(self, expect_content, true_content, position):
-        """比较512字节"""
-        print_str_lst = []
-        print_str_lst.append("bucket: {};   object: {};   bad sector lba: 0x{:08x}".format(self._bucket_name,
-                                                                                           self._object_name, position))
-        print_str_lst.append("{}{:<35}   {}".format(''.ljust(9), 'expect:', 'true:'))
-        lba = 0
+    def _print_block_content(self, expect_content, true_content):
+        """比较块内容"""
+        lba = self._error_num * self.block_size
         while True:
             expect_len = 16 if len(expect_content) >= 16 else len(expect_content)
             true_len = 16 if len(true_content) >= 16 else len(true_content)
@@ -232,8 +264,22 @@ class CheckSum(object):
             expect_mem_str = ' '.join('{:08x}'.format(mem) for mem in expect_hexs).ljust(35)
             true_hexs = struct.unpack('I' * (true_len / 4) + 'B' * (true_len % 4), true_mem)
             true_mem_str = ' '.join('{:08x}'.format(mem) for mem in true_hexs).ljust(35)
-            print_str_lst.append("0x{:03x}*   {}   {}".format(lba, expect_mem_str, true_mem_str))
+            self._error_msg_lst.append("0x{:03x}*   {}   {}".format(lba, expect_mem_str, true_mem_str))
             if len(expect_content) == 0 and len(true_content) == 0:
                 break
             lba += 16
-        Log.logger.error('\n'.join(print_str_lst))
+        self._error_msg_lst.append("")
+
+    def _parse_range(self, content_range, expect_info):
+        """
+        解析段范围
+        :return  {'size': **, 'offset': **}
+        """
+        if content_range is None:
+            return expect_info
+        else:
+            start = int(content_range.strip('bytes=').split('-')[0])
+            end = int(content_range.strip('bytes=').split('-')[-1])
+            length = end + 1 - start
+            offset = expect_info['offset'] + start
+            return {'size': length, 'offset': offset}
